@@ -12,8 +12,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // CORS configuration for Netlify frontend
+// Remove trailing slash from FRONTEND_URL if present
+const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 const corsOptions = {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: frontendUrl,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
