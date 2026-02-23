@@ -56,8 +56,18 @@ if (process.env.NODE_ENV !== 'production') {
     app.use(express.static(path.join(__dirname, 'public')));
 }
 
-// Trust proxy for Render
+// Trust proxy for Render (required for secure cookies behind proxy)
 app.set('trust proxy', 1);
+
+// Determine if we're in production (Render sets NODE_ENV or has RENDER env var)
+const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+
+console.log('Environment:', {
+    NODE_ENV: process.env.NODE_ENV,
+    RENDER: process.env.RENDER,
+    isProduction: isProduction,
+    FRONTEND_URL: process.env.FRONTEND_URL
+});
 
 // Session configuration with MongoDB store
 app.use(session({
@@ -69,15 +79,25 @@ app.use(session({
         ttl: 24 * 60 * 60 // 1 day
     }),
     cookie: { 
-        secure: process.env.NODE_ENV === 'production',
+        secure: isProduction, // Must be true for cross-domain
         httpOnly: true,
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        sameSite: isProduction ? 'none' : 'lax', // Must be 'none' for cross-domain
         maxAge: 24 * 60 * 60 * 1000
     }
 }));
 
 // Auth middleware
 function requireAuth(req, res, next) {
+    // Debug logging
+    if (isProduction) {
+        console.log('Auth check:', {
+            hasSession: !!req.session,
+            hasUser: !!(req.session && req.session.user),
+            sessionID: req.sessionID,
+            cookies: req.headers.cookie ? 'present' : 'missing'
+        });
+    }
+    
     if (req.session && req.session.user) {
         next();
     } else {
@@ -163,8 +183,8 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 // ==================== THAILAND LOCATION API ====================
 // Using free Thailand Administrative API
 
-// Get all provinces
-app.get('/api/thailand/provinces', requireAuth, async (req, res) => {
+// Get all provinces (public - no auth required)
+app.get('/api/thailand/provinces', async (req, res) => {
     try {
         const response = await axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_province.json');
         res.json(response.data);
@@ -181,8 +201,8 @@ app.get('/api/thailand/provinces', requireAuth, async (req, res) => {
     }
 });
 
-// Get districts (amphures) by province
-app.get('/api/thailand/amphures/:provinceId', requireAuth, async (req, res) => {
+// Get districts (amphures) by province (public)
+app.get('/api/thailand/amphures/:provinceId', async (req, res) => {
     try {
         const response = await axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_amphure.json');
         const amphures = response.data.filter(a => a.province_id === parseInt(req.params.provinceId));
@@ -193,8 +213,8 @@ app.get('/api/thailand/amphures/:provinceId', requireAuth, async (req, res) => {
     }
 });
 
-// Get tambons (subdistricts) by amphure
-app.get('/api/thailand/tambons/:amphureId', requireAuth, async (req, res) => {
+// Get tambons (subdistricts) by amphure (public)
+app.get('/api/thailand/tambons/:amphureId', async (req, res) => {
     try {
         const response = await axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_tambon.json');
         const tambons = response.data.filter(t => t.amphure_id === parseInt(req.params.amphureId));
@@ -227,8 +247,8 @@ app.get('/api/thailand/search', requireAuth, async (req, res) => {
 
 // ==================== LOCATION ROUTES ====================
 
-// Get location types
-app.get('/api/location-types', requireAuth, (req, res) => {
+// Get location types (public)
+app.get('/api/location-types', (req, res) => {
     res.json([
         { id: 1, name: 'บ้านพักอาศัย' },
         { id: 2, name: 'อาคารพาณิชย์' },
