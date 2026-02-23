@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar Admin - ระบบจัดการข้อมูลลูกค้า</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div id="loading" class="loading-overlay">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Login Page -->
+    <div id="loginPage" class="page active">
+        <div class="auth-container">
+            <div class="auth-card">
+                <div class="logo">
+                    <span class="logo-icon">☀️</span>
+                    <h1>Solar Admin</h1>
+                </div>
+                <form id="loginForm" class="auth-form">
+                    <h2>เข้าสู่ระบบ</h2>
+                    <div class="form-group">
+                        <label for="loginUsername">ชื่อผู้ใช้</label>
+                        <input type="text" id="loginUsername" required autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">รหัสผ่าน</label>
+                        <input type="password" id="loginPassword" required autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">เข้าสู่ระบบ</button>
+                    <p class="auth-switch">ยังไม่มีบัญชี? <a href="#" onclick="showPage('registerPage')">สมัครสมาชิก</a></p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Register Page -->
+    <div id="registerPage" class="page">
+        <div class="auth-container">
+            <div class="auth-card">
+                <div class="logo">
+                    <span class="logo-icon">☀️</span>
+                    <h1>Solar Admin</h1>
+                </div>
+                <form id="registerForm" class="auth-form">
+                    <h2>สมัครสมาชิก</h2>
+                    <div class="form-group">
+                        <label for="regUsername">ชื่อผู้ใช้ *</label>
+                        <input type="text" id="regUsername" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="regPassword">รหัสผ่าน *</label>
+                        <input type="password" id="regPassword" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="regFullName">ชื่อ-นามสกุล *</label>
+                        <input type="text" id="regFullName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="regEmail">อีเมล</label>
+                        <input type="email" id="regEmail">
+                    </div>
+                    <div class="form-group">
+                        <label for="regPhone">เบอร์โทรศัพท์</label>
+                        <input type="tel" id="regPhone">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">สมัครสมาชิก</button>
+                    <p class="auth-switch">มีบัญชีอยู่แล้ว? <a href="#" onclick="showPage('loginPage')">เข้าสู่ระบบ</a></p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App (Employee) -->
+    <div id="employeePage" class="page">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <span class="logo-icon">☀️</span>
+                <span>Solar Admin</span>
+            </div>
+            <div class="nav-user">
+                <span id="userName"></span>
+                <button class="btn btn-sm btn-outline" onclick="logout()">ออกจากระบบ</button>
+            </div>
+        </nav>
+
+        <div class="container">
+            <!-- Tab Navigation -->
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="searchTab">ค้นหาสถานที่</button>
+                <button class="tab-btn" data-tab="addLocationTab">เพิ่มสถานที่ใหม่</button>
+                <button class="tab-btn" data-tab="myRecordsTab">บันทึกของฉัน</button>
+            </div>
+
+            <!-- Search Tab -->
+            <div id="searchTab" class="tab-content active">
+                <div class="card">
+                    <h3>ค้นหาสถานที่</h3>
+                    <div class="search-filters">
+                        <div class="form-group">
+                            <label for="searchProvince">จังหวัด</label>
+                            <select id="searchProvince">
+                                <option value="">-- ทั้งหมด --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="searchDistrict">อำเภอ/เขต</label>
+                            <select id="searchDistrict">
+                                <option value="">-- ทั้งหมด --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="searchType">ประเภท</label>
+                            <select id="searchType">
+                                <option value="">-- ทั้งหมด --</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="searchLocations()">ค้นหา</button>
+                    </div>
+                    <div class="form-group mt-4">
+                        <label for="searchText">ค้นหาด้วยชื่อ/ที่อยู่</label>
+                        <input type="text" id="searchText" placeholder="พิมพ์ชื่อสถานที่หรือที่อยู่...">
+                    </div>
+                </div>
+
+                <div id="locationResults" class="location-list">
+                    <!-- Location cards will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Add Location Tab -->
+            <div id="addLocationTab" class="tab-content">
+                <div class="card">
+                    <h3>เพิ่มสถานที่ใหม่</h3>
+                    <form id="addLocationForm">
+                        <div class="form-group">
+                            <label for="newLocName">ชื่อสถานที่ *</label>
+                            <input type="text" id="newLocName" required placeholder="เช่น บ้านคุณสมชาย">
+                        </div>
+                        <div class="form-group">
+                            <label for="newLocAddress">ที่อยู่</label>
+                            <input type="text" id="newLocAddress" placeholder="บ้านเลขที่ ซอย ถนน">
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="newLocProvince">จังหวัด *</label>
+                                <select id="newLocProvince" required>
+                                    <option value="">-- เลือก --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="newLocDistrict">อำเภอ/เขต *</label>
+                                <select id="newLocDistrict" required>
+                                    <option value="">-- เลือกจังหวัดก่อน --</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="newLocSubdistrict">ตำบล/แขวง</label>
+                                <select id="newLocSubdistrict">
+                                    <option value="">-- เลือกอำเภอก่อน --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="newLocPostalCode">รหัสไปรษณีย์</label>
+                                <input type="text" id="newLocPostalCode" maxlength="5">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="newLocType">ประเภทสถานที่ *</label>
+                            <select id="newLocType" required>
+                                <option value="">-- เลือก --</option>
+                            </select>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="newLocLat">Latitude</label>
+                                <input type="number" id="newLocLat" step="any" placeholder="13.7563">
+                            </div>
+                            <div class="form-group">
+                                <label for="newLocLng">Longitude</label>
+                                <input type="number" id="newLocLng" step="any" placeholder="100.5018">
+                            </div>
+                        </div>
+                        
+                        <button type="button" class="btn btn-outline btn-sm mb-4" onclick="getCurrentLocation()">
+                            📍 ใช้ตำแหน่งปัจจุบัน
+                        </button>
+
+                        <button type="submit" class="btn btn-primary btn-block">เพิ่มสถานที่</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- My Records Tab -->
+            <div id="myRecordsTab" class="tab-content">
+                <div class="card">
+                    <h3>รายการที่บันทึก</h3>
+                </div>
+                <div id="myRecordsList" class="record-list">
+                    <!-- Records will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Page -->
+    <div id="adminPage" class="page">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <span class="logo-icon">☀️</span>
+                <span>Solar Admin</span>
+                <span class="badge badge-admin">Admin</span>
+            </div>
+            <div class="nav-user">
+                <span id="adminUserName"></span>
+                <button class="btn btn-sm btn-outline" onclick="logout()">ออกจากระบบ</button>
+            </div>
+        </nav>
+
+        <div class="container">
+            <!-- Admin Stats -->
+            <div id="adminStats" class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="statInterested">0</div>
+                    <div class="stat-label">สนใจ</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="statNotInterested">0</div>
+                    <div class="stat-label">ไม่สนใจ</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="statApproved">0</div>
+                    <div class="stat-label">อนุมัติแล้ว</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="statEmployees">0</div>
+                    <div class="stat-label">พนักงาน</div>
+                </div>
+            </div>
+
+            <!-- Admin Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="interestedTab">ลูกค้าสนใจ</button>
+                <button class="tab-btn" data-tab="notInterestedTab">ลูกค้าไม่สนใจ</button>
+                <button class="tab-btn" data-tab="usersTab">จัดการสมาชิก</button>
+                <button class="tab-btn" data-tab="locationsTab">สถานที่ทั้งหมด</button>
+            </div>
+
+            <!-- Interested Customers Tab -->
+            <div id="interestedTab" class="tab-content active">
+                <div class="card">
+                    <h3>รายการลูกค้าที่สนใจ</h3>
+                    <div class="filter-bar">
+                        <select id="filterEmployee">
+                            <option value="">พนักงานทั้งหมด</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="interestedList" class="admin-list">
+                    <!-- Interested customers will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Not Interested Customers Tab -->
+            <div id="notInterestedTab" class="tab-content">
+                <div class="card">
+                    <h3>รายการลูกค้าที่ไม่สนใจ</h3>
+                </div>
+                <div id="notInterestedList" class="admin-list">
+                    <!-- Not interested customers will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Users Management Tab -->
+            <div id="usersTab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>จัดการสมาชิก</h3>
+                        <button class="btn btn-primary btn-sm" onclick="showAddUserModal()">+ เพิ่มสมาชิก</button>
+                    </div>
+                </div>
+                <div id="usersList" class="admin-list">
+                    <!-- Users will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Locations Tab -->
+            <div id="locationsTab" class="tab-content">
+                <div class="card">
+                    <h3>สถานที่ทั้งหมด</h3>
+                </div>
+                <div id="adminLocationsList" class="admin-list">
+                    <!-- Locations will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Interest Modal -->
+    <div id="interestModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>บันทึกข้อมูลลูกค้า</h3>
+                <button class="modal-close" onclick="closeModal('interestModal')">&times;</button>
+            </div>
+            <form id="interestForm">
+                <input type="hidden" id="interestLocationId">
+                <div class="form-group">
+                    <label for="customerName">ชื่อลูกค้า</label>
+                    <input type="text" id="customerName" placeholder="ชื่อผู้ติดต่อ">
+                </div>
+                <div class="form-group">
+                    <label for="monthlyBill">ค่าไฟต่อเดือน (บาท)</label>
+                    <input type="number" id="monthlyBill" placeholder="เช่น 5000">
+                </div>
+                <div class="form-group">
+                    <label for="electricityUsage">ใช้ไฟช่วงใด</label>
+                    <select id="electricityUsage">
+                        <option value="">-- เลือก --</option>
+                        <option value="day">กลางวัน</option>
+                        <option value="night">กลางคืน</option>
+                        <option value="both">ทั้งสองช่วง</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="customerPhone">เบอร์โทรลูกค้า</label>
+                    <input type="tel" id="customerPhone" placeholder="0XX-XXX-XXXX">
+                </div>
+                <div class="form-group">
+                    <label for="interestNotes">หมายเหตุ</label>
+                    <textarea id="interestNotes" rows="3" placeholder="รายละเอียดเพิ่มเติม..."></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('interestModal')">ยกเลิก</button>
+                    <button type="submit" class="btn btn-primary">บันทึก</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div id="addUserModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>เพิ่มสมาชิกใหม่</h3>
+                <button class="modal-close" onclick="closeModal('addUserModal')">&times;</button>
+            </div>
+            <form id="addUserForm">
+                <div class="form-group">
+                    <label for="newUsername">ชื่อผู้ใช้ *</label>
+                    <input type="text" id="newUsername" required>
+                </div>
+                <div class="form-group">
+                    <label for="newPassword">รหัสผ่าน *</label>
+                    <input type="password" id="newPassword" required>
+                </div>
+                <div class="form-group">
+                    <label for="newFullName">ชื่อ-นามสกุล *</label>
+                    <input type="text" id="newFullName" required>
+                </div>
+                <div class="form-group">
+                    <label for="newEmail">อีเมล</label>
+                    <input type="email" id="newEmail">
+                </div>
+                <div class="form-group">
+                    <label for="newPhone">เบอร์โทรศัพท์</label>
+                    <input type="tel" id="newPhone">
+                </div>
+                <div class="form-group">
+                    <label for="newRole">สิทธิ์</label>
+                    <select id="newRole">
+                        <option value="employee">พนักงาน</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('addUserModal')">ยกเลิก</button>
+                    <button type="submit" class="btn btn-primary">เพิ่มสมาชิก</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="editUserModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>แก้ไขข้อมูลสมาชิก</h3>
+                <button class="modal-close" onclick="closeModal('editUserModal')">&times;</button>
+            </div>
+            <form id="editUserForm">
+                <input type="hidden" id="editUserId">
+                <div class="form-group">
+                    <label for="editFullName">ชื่อ-นามสกุล *</label>
+                    <input type="text" id="editFullName" required>
+                </div>
+                <div class="form-group">
+                    <label for="editEmail">อีเมล</label>
+                    <input type="email" id="editEmail">
+                </div>
+                <div class="form-group">
+                    <label for="editPhone">เบอร์โทรศัพท์</label>
+                    <input type="tel" id="editPhone">
+                </div>
+                <div class="form-group">
+                    <label for="editRole">สิทธิ์</label>
+                    <select id="editRole">
+                        <option value="employee">พนักงาน</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="editIsActive">สถานะ</label>
+                    <select id="editIsActive">
+                        <option value="true">ใช้งาน</option>
+                        <option value="false">ปิดใช้งาน</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('editUserModal')">ยกเลิก</button>
+                    <button type="submit" class="btn btn-primary">บันทึก</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
