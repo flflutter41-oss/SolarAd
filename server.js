@@ -11,11 +11,36 @@ const { User, Location, CustomerInterest } = require('./models');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS configuration for Netlify frontend
-// Remove trailing slash from FRONTEND_URL if present
-const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+// CORS configuration - allow Netlify frontend
+const allowedOrigins = [
+    'https://super-solarad.netlify.app',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+];
+
+// Add FRONTEND_URL from env if set
+if (process.env.FRONTEND_URL) {
+    const url = process.env.FRONTEND_URL.replace(/\/$/, '');
+    if (!allowedOrigins.includes(url)) {
+        allowedOrigins.push(url);
+    }
+}
+
 const corsOptions = {
-    origin: frontendUrl,
+    origin: function (origin, callback) {
+        // Allow requests with no origin (mobile apps, curl, etc.)
+        if (!origin) return callback(null, true);
+        
+        // Remove trailing slash for comparison
+        const normalizedOrigin = origin.replace(/\/$/, '');
+        
+        if (allowedOrigins.includes(normalizedOrigin)) {
+            callback(null, normalizedOrigin);
+        } else {
+            console.log('CORS blocked origin:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
