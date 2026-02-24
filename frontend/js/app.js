@@ -684,6 +684,30 @@ const osmPlaceTypes = {
         ],
         icon: '🏥' 
     },
+    'ร้านกาแฟ': { 
+        queries: [
+            '["amenity"="cafe"]',
+            '["cuisine"="coffee"]',
+            '["shop"="coffee"]'
+        ],
+        icon: '☕' 
+    },
+    'ร้านยา': { 
+        queries: [
+            '["amenity"="pharmacy"]',
+            '["shop"="chemist"]',
+            '["healthcare"="pharmacy"]'
+        ],
+        icon: '💊' 
+    },
+    'ร้านขายช่วงล่าง': { 
+        queries: [
+            '["shop"="car_parts"]',
+            '["shop"="car_repair"]',
+            '["shop"="tyres"]'
+        ],
+        icon: '🔧' 
+    },
     'อื่นๆ': { 
         queries: [
             '["amenity"="place_of_worship"]',
@@ -692,6 +716,9 @@ const osmPlaceTypes = {
         icon: '📍' 
     }
 };
+
+// Store current search results for interest marking
+let currentSearchResults = [];
 
 // Search from Overpass API (OpenStreetMap) directly
 async function searchFromOverpass(province, district, type) {
@@ -787,6 +814,9 @@ async function searchFromOverpass(province, district, type) {
 function renderLocations(locations) {
     const container = document.getElementById('locationResults');
     
+    // Store for later use when marking interests
+    currentSearchResults = locations;
+    
     if (locations.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
@@ -797,7 +827,7 @@ function renderLocations(locations) {
         return;
     }
     
-    container.innerHTML = locations.map(loc => {
+    container.innerHTML = locations.map((loc, index) => {
         const provinceName = loc.province?.name_th || '';
         const districtName = loc.district?.name_th || '';
         const mapLink = getGoogleMapsLink(loc);
@@ -811,10 +841,10 @@ function renderLocations(locations) {
                 </div>
                 ${loc.address ? `<p class="text-muted mb-2">${loc.address}</p>` : ''}
                 <div class="location-actions">
-                    <button class="btn btn-sm btn-interested" onclick="markInterested('${loc._id}')">
+                    <button class="btn btn-sm btn-interested" onclick="markInterested(${index})">
                         ✓ สนใจ
                     </button>
-                    <button class="btn btn-sm btn-not-interested" onclick="markNotInterested('${loc._id}')">
+                    <button class="btn btn-sm btn-not-interested" onclick="markNotInterested(${index})">
                         ✗ ไม่สนใจ
                     </button>
                     <a href="${mapLink}" target="_blank" class="btn btn-sm btn-outline">
@@ -826,23 +856,27 @@ function renderLocations(locations) {
     }).join('');
 }
 
-function markInterested(locationId) {
-    document.getElementById('interestLocationId').value = locationId;
+// Store selected location for interest form
+let selectedLocationData = null;
+
+function markInterested(index) {
+    selectedLocationData = currentSearchResults[index];
     document.getElementById('interestForm').reset();
-    document.getElementById('interestLocationId').value = locationId;
     showModal('interestModal');
 }
 
-async function markNotInterested(locationId) {
+async function markNotInterested(index) {
     if (!confirm('ยืนยันว่าลูกค้าไม่สนใจ?')) return;
     
     showLoading();
     
     try {
+        const locationData = currentSearchResults[index];
+        
         await api('/interests', {
             method: 'POST',
             body: JSON.stringify({
-                location_id: locationId,
+                location_data: locationData,
                 status: 'not_interested'
             })
         });
@@ -858,13 +892,19 @@ async function markNotInterested(locationId) {
 // Interest form
 document.getElementById('interestForm').addEventListener('submit', async function(e) {
     e.preventDefault();
+    
+    if (!selectedLocationData) {
+        showToast('ไม่พบข้อมูลสถานที่', 'error');
+        return;
+    }
+    
     showLoading();
     
     try {
         await api('/interests', {
             method: 'POST',
             body: JSON.stringify({
-                location_id: document.getElementById('interestLocationId').value,
+                location_data: selectedLocationData,
                 status: 'interested',
                 customer_name: document.getElementById('customerName').value || null,
                 monthly_electric_bill: document.getElementById('monthlyBill').value || null,
@@ -876,6 +916,7 @@ document.getElementById('interestForm').addEventListener('submit', async functio
         
         showToast('บันทึกข้อมูลสำเร็จ', 'success');
         closeModal('interestModal');
+        selectedLocationData = null;
     } catch (error) {
         showToast(error.message, 'error');
     } finally {
@@ -1292,10 +1333,29 @@ function renderAdminLocations(locations) {
                     <a href="${mapLink}" target="_blank" class="btn btn-sm btn-outline">
                         🗺️ ดู Google Maps
                     </a>
+                    <button class="btn btn-sm btn-danger" onclick="deleteLocation('${loc._id}', '${loc.name.replace(/'/g, "\\'")}')">
+                        🗑️ ลบ
+                    </button>
                 </div>
             </div>
         `;
     }).join('');
+}
+
+async function deleteLocation(id, name) {
+    if (!confirm(`ยืนยันการลบ "${name}"?`)) return;
+    
+    showLoading();
+    
+    try {
+        await api(`/locations/${id}`, { method: 'DELETE' });
+        showToast('ลบสถานที่สำเร็จ', 'success');
+        await loadAdminLocations();
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        hideLoading();
+    }
 }
 
 // ==================== Search on Enter ====================

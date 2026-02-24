@@ -323,10 +323,26 @@ function populateSearchFilters() {
         typeSelect.innerHTML += `<option value="${t.name}">${t.name}</option>`;
     });
     
+    // Helper function to clear results
+    function clearLocationResults() {
+        const container = document.getElementById('locationResults');
+        if (container) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">🔍</div>
+                    <p>เลือกตัวกรองแล้วกดค้นหา</p>
+                </div>
+            `;
+        }
+    }
+    
     // Province change event
     provinceSelect.addEventListener('change', async function() {
         const districtSelect = document.getElementById('searchDistrict');
         districtSelect.innerHTML = '<option value="">-- ทั้งหมด --</option>';
+        
+        // Clear old results when province changes
+        clearLocationResults();
         
         const selectedOption = this.options[this.selectedIndex];
         const provinceId = selectedOption.dataset.id;
@@ -337,6 +353,16 @@ function populateSearchFilters() {
                 districtSelect.innerHTML += `<option value="${d.name_th}">${d.name_th}</option>`;
             });
         }
+    });
+    
+    // District change event - clear results
+    document.getElementById('searchDistrict').addEventListener('change', function() {
+        clearLocationResults();
+    });
+    
+    // Type change event - clear results
+    typeSelect.addEventListener('change', function() {
+        clearLocationResults();
     });
 }
 
@@ -473,28 +499,323 @@ async function searchLocations() {
     showLoading();
     
     try {
-        const params = new URLSearchParams();
         const province = document.getElementById('searchProvince').value;
         const district = document.getElementById('searchDistrict').value;
         const type = document.getElementById('searchType').value;
         const search = document.getElementById('searchText')?.value;
         
+        if (!province) {
+            showToast('กรุณาเลือกจังหวัด', 'warning');
+            hideLoading();
+            return;
+        }
+        
+        if (!type || type === '-- ทั้งหมด --') {
+            showToast('กรุณาเลือกประเภทสถานที่', 'warning');
+            hideLoading();
+            return;
+        }
+        
+        // Search using Overpass API directly from frontend
+        const locations = await searchFromOverpass(province, district, type);
+        
+        // Also get custom locations from database
+        const params = new URLSearchParams();
         if (province) params.append('province', province);
         if (district) params.append('district', district);
         if (type) params.append('type', type);
         if (search) params.append('search', search);
         
-        const locations = await api(`/locations?${params.toString()}`);
-        renderLocations(locations);
+        try {
+            const dbLocations = await api(`/locations/custom?${params.toString()}`);
+            // Combine: DB first, then Overpass results
+            const allLocations = [...dbLocations, ...locations];
+            renderLocations(allLocations);
+        } catch (dbError) {
+            // If DB fails, just show Overpass results
+            renderLocations(locations);
+        }
+        
     } catch (error) {
-        showToast(error.message, 'error');
+        console.error('Search error:', error);
+        showToast('เกิดข้อผิดพลาดในการค้นหา', 'error');
+        renderLocations([]);
     } finally {
         hideLoading();
     }
 }
 
+// Province coordinates for Overpass bounding box
+const provinceCoordinates = {
+    'กรุงเทพมหานคร': { lat: 13.7563, lon: 100.5018 },
+    'สมุทรปราการ': { lat: 13.5991, lon: 100.5998 },
+    'นนทบุรี': { lat: 13.8621, lon: 100.5144 },
+    'ปทุมธานี': { lat: 14.0208, lon: 100.5250 },
+    'พระนครศรีอยุธยา': { lat: 14.3532, lon: 100.5683 },
+    'อ่างทอง': { lat: 14.5896, lon: 100.4549 },
+    'ลพบุรี': { lat: 14.7995, lon: 100.6534 },
+    'สิงห์บุรี': { lat: 14.8936, lon: 100.3967 },
+    'ชัยนาท': { lat: 15.1851, lon: 100.1251 },
+    'สระบุรี': { lat: 14.5289, lon: 100.9108 },
+    'ชลบุรี': { lat: 13.3611, lon: 100.9847 },
+    'ระยอง': { lat: 12.6833, lon: 101.2378 },
+    'จันทบุรี': { lat: 12.6114, lon: 102.1039 },
+    'ตราด': { lat: 12.2428, lon: 102.5177 },
+    'ฉะเชิงเทรา': { lat: 13.6904, lon: 101.0779 },
+    'ปราจีนบุรี': { lat: 14.0509, lon: 101.3717 },
+    'นครนายก': { lat: 14.2069, lon: 101.2131 },
+    'สระแก้ว': { lat: 13.8240, lon: 102.0645 },
+    'นครราชสีมา': { lat: 14.9799, lon: 102.0977 },
+    'บุรีรัมย์': { lat: 14.9930, lon: 103.1029 },
+    'สุรินทร์': { lat: 14.8818, lon: 103.4936 },
+    'ศรีสะเกษ': { lat: 15.1186, lon: 104.3220 },
+    'อุบลราชธานี': { lat: 15.2287, lon: 104.8564 },
+    'ยโสธร': { lat: 15.7922, lon: 104.1452 },
+    'ชัยภูมิ': { lat: 15.8068, lon: 102.0316 },
+    'อำนาจเจริญ': { lat: 15.8656, lon: 104.6257 },
+    'บึงกาฬ': { lat: 18.3609, lon: 103.6466 },
+    'หนองบัวลำภู': { lat: 17.2218, lon: 102.4260 },
+    'ขอนแก่น': { lat: 16.4322, lon: 102.8236 },
+    'อุดรธานี': { lat: 17.4156, lon: 102.7872 },
+    'เลย': { lat: 17.4860, lon: 101.7223 },
+    'หนองคาย': { lat: 17.8783, lon: 102.7420 },
+    'มหาสารคาม': { lat: 16.1851, lon: 103.3006 },
+    'ร้อยเอ็ด': { lat: 16.0538, lon: 103.6520 },
+    'กาฬสินธุ์': { lat: 16.4314, lon: 103.5058 },
+    'สกลนคร': { lat: 17.1545, lon: 104.1348 },
+    'นครพนม': { lat: 17.3920, lon: 104.7695 },
+    'มุกดาหาร': { lat: 16.5453, lon: 104.7235 },
+    'เชียงใหม่': { lat: 18.7883, lon: 98.9853 },
+    'ลำพูน': { lat: 18.5744, lon: 99.0087 },
+    'ลำปาง': { lat: 18.2888, lon: 99.4906 },
+    'อุตรดิตถ์': { lat: 17.6200, lon: 100.0993 },
+    'แพร่': { lat: 18.1445, lon: 100.1403 },
+    'น่าน': { lat: 18.7756, lon: 100.7730 },
+    'พะเยา': { lat: 19.1664, lon: 99.9019 },
+    'เชียงราย': { lat: 19.9105, lon: 99.8406 },
+    'แม่ฮ่องสอน': { lat: 19.3020, lon: 97.9654 },
+    'นครสวรรค์': { lat: 15.7030, lon: 100.1367 },
+    'อุทัยธานี': { lat: 15.3835, lon: 100.0245 },
+    'กำแพงเพชร': { lat: 16.4827, lon: 99.5226 },
+    'ตาก': { lat: 16.8840, lon: 99.1258 },
+    'สุโขทัย': { lat: 17.0078, lon: 99.8265 },
+    'พิษณุโลก': { lat: 16.8211, lon: 100.2659 },
+    'พิจิตร': { lat: 16.4429, lon: 100.3487 },
+    'เพชรบูรณ์': { lat: 16.4190, lon: 101.1591 },
+    'ราชบุรี': { lat: 13.5283, lon: 99.8134 },
+    'กาญจนบุรี': { lat: 14.0227, lon: 99.5328 },
+    'สุพรรณบุรี': { lat: 14.4744, lon: 100.1177 },
+    'นครปฐม': { lat: 13.8196, lon: 100.0445 },
+    'สมุทรสาคร': { lat: 13.5475, lon: 100.2747 },
+    'สมุทรสงคราม': { lat: 13.4098, lon: 100.0022 },
+    'เพชรบุรี': { lat: 13.1119, lon: 99.9398 },
+    'ประจวบคีรีขันธ์': { lat: 11.8126, lon: 99.7957 },
+    'นครศรีธรรมราช': { lat: 8.4304, lon: 99.9631 },
+    'กระบี่': { lat: 8.0863, lon: 98.9063 },
+    'พังงา': { lat: 8.4511, lon: 98.5256 },
+    'ภูเก็ต': { lat: 7.8804, lon: 98.3923 },
+    'สุราษฎร์ธานี': { lat: 9.1382, lon: 99.3217 },
+    'ระนอง': { lat: 9.9528, lon: 98.6085 },
+    'ชุมพร': { lat: 10.4931, lon: 99.1800 },
+    'สงขลา': { lat: 7.1897, lon: 100.5954 },
+    'สตูล': { lat: 6.6238, lon: 100.0673 },
+    'ตรัง': { lat: 7.5563, lon: 99.6114 },
+    'พัทลุง': { lat: 7.6167, lon: 100.0743 },
+    'ปัตตานี': { lat: 6.8691, lon: 101.2508 },
+    'ยะลา': { lat: 6.5400, lon: 101.2800 },
+    'นราธิวาส': { lat: 6.4318, lon: 101.8231 }
+};
+
+// OSM place types mapping - multiple queries for better results
+const osmPlaceTypes = {
+    'บ้านพักอาศัย': { 
+        queries: [
+            '["building"="apartments"]',
+            '["building"="residential"]',
+            '["landuse"="residential"]'
+        ],
+        icon: '🏠' 
+    },
+    'อาคารพาณิชย์': { 
+        queries: [
+            '["building"="office"]',
+            '["office"]',
+            '["building"="commercial"]'
+        ],
+        icon: '🏢' 
+    },
+    'โรงงาน': { 
+        queries: [
+            '["man_made"="works"]',
+            '["industrial"]',
+            '["landuse"="industrial"]'
+        ],
+        icon: '🏭' 
+    },
+    'ห้างสรรพสินค้า': { 
+        queries: [
+            '["shop"="mall"]',
+            '["shop"="department_store"]',
+            '["shop"="supermarket"]'
+        ],
+        icon: '🛒' 
+    },
+    'โรงแรม': { 
+        queries: [
+            '["tourism"="hotel"]',
+            '["tourism"="guest_house"]',
+            '["tourism"="motel"]'
+        ],
+        icon: '🏨' 
+    },
+    'โรงเรียน': { 
+        queries: [
+            '["amenity"="school"]',
+            '["amenity"="university"]',
+            '["amenity"="college"]'
+        ],
+        icon: '🏫' 
+    },
+    'โรงพยาบาล': { 
+        queries: [
+            '["amenity"="hospital"]',
+            '["amenity"="clinic"]',
+            '["healthcare"]'
+        ],
+        icon: '🏥' 
+    },
+    'ร้านกาแฟ': { 
+        queries: [
+            '["amenity"="cafe"]',
+            '["cuisine"="coffee"]',
+            '["shop"="coffee"]'
+        ],
+        icon: '☕' 
+    },
+    'ร้านยา': { 
+        queries: [
+            '["amenity"="pharmacy"]',
+            '["shop"="chemist"]',
+            '["healthcare"="pharmacy"]'
+        ],
+        icon: '💊' 
+    },
+    'ร้านขายช่วงล่าง': { 
+        queries: [
+            '["shop"="car_parts"]',
+            '["shop"="car_repair"]',
+            '["shop"="tyres"]'
+        ],
+        icon: '🔧' 
+    },
+    'อื่นๆ': { 
+        queries: [
+            '["amenity"="place_of_worship"]',
+            '["amenity"="community_centre"]'
+        ],
+        icon: '📍' 
+    }
+};
+
+// Store current search results for interest marking
+let currentSearchResults = [];
+
+// Search from Overpass API (OpenStreetMap) directly
+async function searchFromOverpass(province, district, type) {
+    const coords = provinceCoordinates[province];
+    if (!coords) {
+        console.error('Province coordinates not found:', province);
+        return [];
+    }
+    
+    const osmType = osmPlaceTypes[type];
+    if (!osmType) {
+        console.error('OSM type not found:', type);
+        return [];
+    }
+    
+    // Create bounding box (roughly 25km radius for better coverage)
+    const delta = district ? 0.15 : 0.25;
+    const bbox = `${coords.lat - delta},${coords.lon - delta},${coords.lat + delta},${coords.lon + delta}`;
+    
+    // Build Overpass query with multiple tag queries
+    const queryParts = osmType.queries.map(q => `
+        node${q}(${bbox});
+        way${q}(${bbox});
+    `).join('');
+    
+    const overpassQuery = `
+        [out:json][timeout:30];
+        (
+            ${queryParts}
+        );
+        out body center 150;
+    `;
+    
+    // Multiple Overpass servers for fallback
+    const overpassServers = [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+        'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+    ];
+    
+    for (const server of overpassServers) {
+        try {
+            console.log(`Trying Overpass server: ${server}`);
+            const url = `${server}?data=${encodeURIComponent(overpassQuery)}`;
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+            
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) continue;
+            
+            const data = await response.json();
+            
+            if (data.elements && data.elements.length > 0) {
+                console.log(`✅ Found ${data.elements.length} places from ${server}`);
+                
+                return data.elements.map(el => {
+                    const tags = el.tags || {};
+                    let lat = el.lat, lng = el.lon;
+                    if (el.center) { lat = el.center.lat; lng = el.center.lon; }
+                    
+                    return {
+                        _id: `osm_${el.id}`,
+                        name: tags['name:th'] || tags.name || 'ไม่ระบุชื่อ',
+                        address: tags['addr:full'] || tags['addr:street'] || '',
+                        location_type: type,
+                        coordinates: { lat, lng },
+                        province: { name_th: tags['addr:province'] || province },
+                        district: { name_th: tags['addr:district'] || district || '' },
+                        subdistrict: { name_th: tags['addr:subdistrict'] || '' },
+                        postal_code: tags['addr:postcode'] || '',
+                        phone: tags.phone || '',
+                        website: tags.website || '',
+                        source: 'openstreetmap'
+                    };
+                }).filter(p => p.name !== 'ไม่ระบุชื่อ');
+            }
+            
+            return [];
+            
+        } catch (error) {
+            console.warn(`Server ${server} failed:`, error.message);
+            continue;
+        }
+    }
+    
+    console.error('All Overpass servers failed');
+    return [];
+}
+
 function renderLocations(locations) {
     const container = document.getElementById('locationResults');
+    
+    // Store for later use when marking interests
+    currentSearchResults = locations;
     
     if (locations.length === 0) {
         container.innerHTML = `
@@ -506,7 +827,7 @@ function renderLocations(locations) {
         return;
     }
     
-    container.innerHTML = locations.map(loc => {
+    container.innerHTML = locations.map((loc, index) => {
         const provinceName = loc.province?.name_th || '';
         const districtName = loc.district?.name_th || '';
         const mapLink = getGoogleMapsLink(loc);
@@ -520,10 +841,10 @@ function renderLocations(locations) {
                 </div>
                 ${loc.address ? `<p class="text-muted mb-2">${loc.address}</p>` : ''}
                 <div class="location-actions">
-                    <button class="btn btn-sm btn-interested" onclick="markInterested('${loc._id}')">
+                    <button class="btn btn-sm btn-interested" onclick="markInterested(${index})">
                         ✓ สนใจ
                     </button>
-                    <button class="btn btn-sm btn-not-interested" onclick="markNotInterested('${loc._id}')">
+                    <button class="btn btn-sm btn-not-interested" onclick="markNotInterested(${index})">
                         ✗ ไม่สนใจ
                     </button>
                     <a href="${mapLink}" target="_blank" class="btn btn-sm btn-outline">
@@ -535,23 +856,27 @@ function renderLocations(locations) {
     }).join('');
 }
 
-function markInterested(locationId) {
-    document.getElementById('interestLocationId').value = locationId;
+// Store selected location for interest form
+let selectedLocationData = null;
+
+function markInterested(index) {
+    selectedLocationData = currentSearchResults[index];
     document.getElementById('interestForm').reset();
-    document.getElementById('interestLocationId').value = locationId;
     showModal('interestModal');
 }
 
-async function markNotInterested(locationId) {
+async function markNotInterested(index) {
     if (!confirm('ยืนยันว่าลูกค้าไม่สนใจ?')) return;
     
     showLoading();
     
     try {
+        const locationData = currentSearchResults[index];
+        
         await api('/interests', {
             method: 'POST',
             body: JSON.stringify({
-                location_id: locationId,
+                location_data: locationData,
                 status: 'not_interested'
             })
         });
@@ -567,13 +892,19 @@ async function markNotInterested(locationId) {
 // Interest form
 document.getElementById('interestForm').addEventListener('submit', async function(e) {
     e.preventDefault();
+    
+    if (!selectedLocationData) {
+        showToast('ไม่พบข้อมูลสถานที่', 'error');
+        return;
+    }
+    
     showLoading();
     
     try {
         await api('/interests', {
             method: 'POST',
             body: JSON.stringify({
-                location_id: document.getElementById('interestLocationId').value,
+                location_data: selectedLocationData,
                 status: 'interested',
                 customer_name: document.getElementById('customerName').value || null,
                 monthly_electric_bill: document.getElementById('monthlyBill').value || null,
@@ -585,6 +916,7 @@ document.getElementById('interestForm').addEventListener('submit', async functio
         
         showToast('บันทึกข้อมูลสำเร็จ', 'success');
         closeModal('interestModal');
+        selectedLocationData = null;
     } catch (error) {
         showToast(error.message, 'error');
     } finally {
@@ -960,7 +1292,8 @@ async function loadAdminLocations() {
     showLoading();
     
     try {
-        const locations = await api('/locations');
+        // Use custom endpoint (DB only, no Overpass API search)
+        const locations = await api('/locations/custom');
         renderAdminLocations(locations);
     } catch (error) {
         showToast(error.message, 'error');
@@ -1000,10 +1333,29 @@ function renderAdminLocations(locations) {
                     <a href="${mapLink}" target="_blank" class="btn btn-sm btn-outline">
                         🗺️ ดู Google Maps
                     </a>
+                    <button class="btn btn-sm btn-danger" onclick="deleteLocation('${loc._id}', '${loc.name.replace(/'/g, "\\'")}')">
+                        🗑️ ลบ
+                    </button>
                 </div>
             </div>
         `;
     }).join('');
+}
+
+async function deleteLocation(id, name) {
+    if (!confirm(`ยืนยันการลบ "${name}"?`)) return;
+    
+    showLoading();
+    
+    try {
+        await api(`/locations/${id}`, { method: 'DELETE' });
+        showToast('ลบสถานที่สำเร็จ', 'success');
+        await loadAdminLocations();
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        hideLoading();
+    }
 }
 
 // ==================== Search on Enter ====================

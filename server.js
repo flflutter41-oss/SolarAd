@@ -267,7 +267,10 @@ app.get('/api/location-types', (req, res) => {
         { id: 5, name: 'โรงแรม' },
         { id: 6, name: 'โรงเรียน' },
         { id: 7, name: 'โรงพยาบาล' },
-        { id: 8, name: 'อื่นๆ' }
+        { id: 8, name: 'ร้านกาแฟ' },
+        { id: 9, name: 'ร้านยา' },
+        { id: 10, name: 'ร้านขายช่วงล่าง' },
+        { id: 11, name: 'อื่นๆ' }
     ]);
 });
 
@@ -436,16 +439,84 @@ app.post('/api/locations', requireAuth, async (req, res) => {
     }
 });
 
+// Delete location
+app.delete('/api/locations/:id', requireAuth, async (req, res) => {
+    try {
+        const location = await Location.findById(req.params.id);
+        
+        if (!location) {
+            return res.status(404).json({ error: 'ไม่พบสถานที่' });
+        }
+        
+        // Check permission - only creator or admin can delete
+        if (location.created_by && location.created_by.toString() !== req.session.user.id && req.session.user.role !== 'admin') {
+            return res.status(403).json({ error: 'ไม่มีสิทธิ์ลบสถานที่นี้' });
+        }
+        
+        // Delete related interests first
+        await CustomerInterest.deleteMany({ location: req.params.id });
+        
+        // Delete the location
+        await Location.findByIdAndDelete(req.params.id);
+        
+        res.json({ success: true, message: 'ลบสถานที่สำเร็จ' });
+    } catch (error) {
+        console.error('Delete location error:', error);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
+    }
+});
+
 // ==================== CUSTOMER INTEREST ROUTES ====================
 
 app.post('/api/interests', requireAuth, async (req, res) => {
     try {
-        const { location_id, status, monthly_electric_bill, electricity_usage, customer_phone, customer_name, notes } = req.body;
+        const { location_data, location_id, status, monthly_electric_bill, electricity_usage, customer_phone, customer_name, notes } = req.body;
         const employee_id = req.session.user.id;
+        
+        let locationId = location_id;
+        
+        // If location_data is provided, create or find the location first
+        if (location_data) {
+            // Check if this location already exists (by name and coordinates)
+            let existingLocation = null;
+            
+            if (location_data.coordinates && location_data.coordinates.lat && location_data.coordinates.lng) {
+                existingLocation = await Location.findOne({
+                    name: location_data.name,
+                    'coordinates.lat': location_data.coordinates.lat,
+                    'coordinates.lng': location_data.coordinates.lng
+                });
+            } else {
+                existingLocation = await Location.findOne({ name: location_data.name });
+            }
+            
+            if (existingLocation) {
+                locationId = existingLocation._id;
+            } else {
+                // Create new location from OSM/external data
+                const newLocation = await Location.create({
+                    name: location_data.name,
+                    address: location_data.address || '',
+                    province: location_data.province || {},
+                    district: location_data.district || {},
+                    subdistrict: location_data.subdistrict || {},
+                    postal_code: location_data.postal_code || '',
+                    location_type: location_data.location_type || 'อื่นๆ',
+                    coordinates: location_data.coordinates || {},
+                    source: location_data.source || 'external',
+                    created_by: employee_id
+                });
+                locationId = newLocation._id;
+            }
+        }
+        
+        if (!locationId) {
+            return res.status(400).json({ error: 'ไม่พบข้อมูลสถานที่' });
+        }
 
-        // Check if already exists
+        // Check if interest already exists
         let interest = await CustomerInterest.findOne({
-            location: location_id,
+            location: locationId,
             employee: employee_id
         });
 
@@ -463,7 +534,7 @@ app.post('/api/interests', requireAuth, async (req, res) => {
         } else {
             // Create new
             const data = {
-                location: location_id,
+                location: locationId,
                 employee: employee_id,
                 status
             };
