@@ -181,71 +181,13 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 });
 
 // ==================== THAILAND LOCATION API ====================
-// Load Thailand data from local files (embedded data for reliability)
+// Load Thailand data from local JSON files (real data - 77 provinces, 919 amphures, 7,211 tambons)
 const fs = require('fs');
 
-// Province data embedded (77 provinces)
+// Load real Thailand data from JSON files
 const PROVINCES = require('./data/provinces.json');
-
-// Amphure (district) data - we'll generate basic structure
-// For a full implementation, you would include complete amphure data
-const AMPHURES = generateAmphures();
-const TAMBONS = generateTambons();
-
-function generateAmphures() {
-    // Generate basic amphures for each province
-    const amphures = [];
-    let id = 1;
-    
-    const districtsByProvince = {
-        1: ['พระนคร','ดุสิต','หนองจอก','บางรัก','บางเขน','บางกะปิ','ปทุมวัน','ป้อมปราบ','พระโขนง','มีนบุรี','ลาดกระบัง','ยานนาวา','สัมพันธวงศ์','พญาไท','ธนบุรี','บางกอกใหญ่','ห้วยขวาง','คลองสาน','ตลิ่งชัน','บางกอกน้อย','บางขุนเทียน','ภาษีเจริญ','หนองแขม','ราษฎร์บูรณะ','บางพลัด','ดินแดง','บึงกุ่ม','สาทร','บางซื่อ','จตุจักร','บางคอแหลม','ประเวศ','คลองเตย','สวนหลวง','จอมทอง','ดอนเมือง','ราชเทวี','ลาดพร้าว','วัฒนา','บางแค','หลักสี่','สายไหม','คันนายาว','สะพานสูง','วังทองหลาง','คลองสามวา','บางนา','ทวีวัฒนา','ทุ่งครุ','บางบอน'],
-        2: ['เมืองสมุทรปราการ','บางบ่อ','บางพลี','พระประแดง','พระสมุทรเจดีย์','บางเสาธง'],
-        3: ['เมืองนนทบุรี','บางกรวย','บางใหญ่','บางบัวทอง','ไทรน้อย','ปากเกร็ด'],
-        4: ['เมืองปทุมธานี','คลองหลวง','ธัญบุรี','หนองเสือ','ลาดหลุมแก้ว','ลำลูกกา','สามโคก'],
-        11: ['เมืองชลบุรี','บ้านบึง','หนองใหญ่','บางละมุง','พานทอง','พนัสนิคม','ศรีราชา','เกาะสีชัง','สัตหีบ','บ่อทอง','เกาะจันทร์'],
-        39: ['เมืองเชียงใหม่','จอมทอง','แม่แจ่ม','เชียงดาว','ดอยสะเก็ด','แม่แตง','แม่ริม','สะเมิง','ฝาง','แม่อาย','พร้าว','สันป่าตอง','สันกำแพง','สันทราย','หางดง','ฮอด','ดอยเต่า','อมก๋อย','สารภี','เวียงแหง','ไชยปราการ','แม่วาง','แม่ออน','ดอยหล่อ','กัลยาณิวัฒนา'],
-        46: ['เมืองเชียงราย','เวียงชัย','เชียงของ','เทิง','พาน','ป่าแดด','แม่จัน','เชียงแสน','แม่สาย','แม่สรวย','เวียงป่าเป้า','พญาเม็งราย','เวียงแก่น','ขุนตาล','แม่ฟ้าหลวง','แม่ลาว','เวียงเชียงรุ้ง','ดอยหลวง'],
-        67: ['เมืองภูเก็ต','กะทู้','ถลาง'],
-        71: ['เมืองสงขลา','สทิงพระ','จะนะ','นาทวี','เทพา','สะบ้าย้อย','ระโนด','กระแสสินธุ์','รัตภูมิ','สะเดา','หาดใหญ่','นาหม่อม','ควนเนียง','บางกล่ำ','สิงหนคร','คลองหอยโข่ง']
-    };
-    
-    // Generate amphures for all provinces
-    PROVINCES.forEach(province => {
-        const districts = districtsByProvince[province.id] || ['เมือง' + province.name_th];
-        districts.forEach((districtName, index) => {
-            amphures.push({
-                id: id++,
-                name_th: districtName,
-                name_en: districtName,
-                province_id: province.id
-            });
-        });
-    });
-    
-    return amphures;
-}
-
-function generateTambons() {
-    // Generate basic tambons for amphures
-    const tambons = [];
-    let id = 1;
-    
-    AMPHURES.forEach(amphure => {
-        // Create 3-5 sample tambons per amphure
-        const numTambons = 3 + Math.floor(Math.random() * 3);
-        for (let i = 1; i <= numTambons; i++) {
-            tambons.push({
-                id: id++,
-                name_th: `ตำบล ${i}`,
-                name_en: `Tambon ${i}`,
-                amphure_id: amphure.id,
-                zip_code: String(amphure.province_id).padStart(2, '0') + '000'
-            });
-        }
-    });
-    
-    return tambons;
-}
+const AMPHURES = require('./data/amphures.json');
+const TAMBONS = require('./data/tambons.json');
 
 // Cache
 let thailandCache = {
