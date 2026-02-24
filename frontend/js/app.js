@@ -626,16 +626,71 @@ const provinceCoordinates = {
     'นราธิวาส': { lat: 6.4318, lon: 101.8231 }
 };
 
-// OSM place types mapping
+// OSM place types mapping - multiple queries for better results
 const osmPlaceTypes = {
-    'บ้านพักอาศัย': { tag: 'building', value: 'residential', icon: '🏠' },
-    'อาคารพาณิชย์': { tag: 'building', value: 'commercial', icon: '🏢' },
-    'โรงงาน': { tag: 'landuse', value: 'industrial', icon: '🏭' },
-    'ห้างสรรพสินค้า': { tag: 'shop', value: 'mall', icon: '🛒' },
-    'โรงแรม': { tag: 'tourism', value: 'hotel', icon: '🏨' },
-    'โรงเรียน': { tag: 'amenity', value: 'school', icon: '🏫' },
-    'โรงพยาบาล': { tag: 'amenity', value: 'hospital', icon: '🏥' },
-    'อื่นๆ': { tag: 'amenity', value: 'place_of_worship', icon: '📍' }
+    'บ้านพักอาศัย': { 
+        queries: [
+            '["building"="apartments"]',
+            '["building"="residential"]',
+            '["landuse"="residential"]'
+        ],
+        icon: '🏠' 
+    },
+    'อาคารพาณิชย์': { 
+        queries: [
+            '["building"="office"]',
+            '["office"]',
+            '["building"="commercial"]'
+        ],
+        icon: '🏢' 
+    },
+    'โรงงาน': { 
+        queries: [
+            '["man_made"="works"]',
+            '["industrial"]',
+            '["landuse"="industrial"]'
+        ],
+        icon: '🏭' 
+    },
+    'ห้างสรรพสินค้า': { 
+        queries: [
+            '["shop"="mall"]',
+            '["shop"="department_store"]',
+            '["shop"="supermarket"]'
+        ],
+        icon: '🛒' 
+    },
+    'โรงแรม': { 
+        queries: [
+            '["tourism"="hotel"]',
+            '["tourism"="guest_house"]',
+            '["tourism"="motel"]'
+        ],
+        icon: '🏨' 
+    },
+    'โรงเรียน': { 
+        queries: [
+            '["amenity"="school"]',
+            '["amenity"="university"]',
+            '["amenity"="college"]'
+        ],
+        icon: '🏫' 
+    },
+    'โรงพยาบาล': { 
+        queries: [
+            '["amenity"="hospital"]',
+            '["amenity"="clinic"]',
+            '["healthcare"]'
+        ],
+        icon: '🏥' 
+    },
+    'อื่นๆ': { 
+        queries: [
+            '["amenity"="place_of_worship"]',
+            '["amenity"="community_centre"]'
+        ],
+        icon: '📍' 
+    }
 };
 
 // Search from Overpass API (OpenStreetMap) directly
@@ -652,18 +707,22 @@ async function searchFromOverpass(province, district, type) {
         return [];
     }
     
-    // Create bounding box (roughly 20km radius, larger for districts)
-    const delta = district ? 0.1 : 0.2; // ~10km for district, ~20km for province
+    // Create bounding box (roughly 25km radius for better coverage)
+    const delta = district ? 0.15 : 0.25;
     const bbox = `${coords.lat - delta},${coords.lon - delta},${coords.lat + delta},${coords.lon + delta}`;
     
-    // Build Overpass query
+    // Build Overpass query with multiple tag queries
+    const queryParts = osmType.queries.map(q => `
+        node${q}(${bbox});
+        way${q}(${bbox});
+    `).join('');
+    
     const overpassQuery = `
-        [out:json][timeout:25];
+        [out:json][timeout:30];
         (
-            node["${osmType.tag}"="${osmType.value}"](${bbox});
-            way["${osmType.tag}"="${osmType.value}"](${bbox});
+            ${queryParts}
         );
-        out body center 100;
+        out body center 150;
     `;
     
     // Multiple Overpass servers for fallback
