@@ -323,10 +323,26 @@ function populateSearchFilters() {
         typeSelect.innerHTML += `<option value="${t.name}">${t.name}</option>`;
     });
     
+    // Helper function to clear results
+    function clearLocationResults() {
+        const container = document.getElementById('locationResults');
+        if (container) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">🔍</div>
+                    <p>เลือกตัวกรองแล้วกดค้นหา</p>
+                </div>
+            `;
+        }
+    }
+    
     // Province change event
     provinceSelect.addEventListener('change', async function() {
         const districtSelect = document.getElementById('searchDistrict');
         districtSelect.innerHTML = '<option value="">-- ทั้งหมด --</option>';
+        
+        // Clear old results when province changes
+        clearLocationResults();
         
         const selectedOption = this.options[this.selectedIndex];
         const provinceId = selectedOption.dataset.id;
@@ -337,6 +353,16 @@ function populateSearchFilters() {
                 districtSelect.innerHTML += `<option value="${d.name_th}">${d.name_th}</option>`;
             });
         }
+    });
+    
+    // District change event - clear results
+    document.getElementById('searchDistrict').addEventListener('change', function() {
+        clearLocationResults();
+    });
+    
+    // Type change event - clear results
+    typeSelect.addEventListener('change', function() {
+        clearLocationResults();
     });
 }
 
