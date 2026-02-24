@@ -272,42 +272,162 @@ app.get('/api/location-types', (req, res) => {
     ]);
 });
 
-// Search/Get locations
+// Map location types to OSM tags
+const locationTypeToOSM = {
+    'บ้านพักอาศัย': ['building=apartments', 'building=residential'],
+    'อาคารพาณิชย์': ['building=commercial', 'office'],
+    'โรงงาน': ['building=industrial', 'man_made=works'],
+    'ห้างสรรพสินค้า': ['shop=mall', 'shop=supermarket', 'shop=department_store'],
+    'โรงแรม': ['tourism=hotel', 'tourism=resort'],
+    'โรงเรียน': ['amenity=school'],
+    'โรงพยาบาล': ['amenity=hospital', 'amenity=clinic'],
+    'อื่นๆ': []
+};
+
+// Search places from OpenStreetMap Overpass API (real-time)
 app.get('/api/locations', requireAuth, async (req, res) => {
     try {
         const { province, district, type, search } = req.query;
         
-        let query = {};
+        // Build search query for Thailand
+        let searchArea = 'Thailand';
+        if (province) searchArea = province + ', Thailand';
+        if (district && province) searchArea = district + ', ' + province + ', Thailand';
         
-        if (province) {
-            query['province.name_th'] = province;
+        // Get OSM tags for the type
+        const osmTags = type && type !== '-- ทั้งหมด --' ? locationTypeToOSM[type] || [] : [];
+        
+        let places = [];
+        
+        // If searching by type, use Overpass API
+        if (osmTags.length > 0 && (province || district)) {
+            const areaName = district || province;
+            
+            // Build Overpass query
+            const tagQueries = osmTags.map(tag => {
+                const [key, value] = tag.includes('=') ? tag.split('=') : [tag, '*'];
+                return `nwr["${key}"${value !== '*' ? `="${value}"` : ''}]["name"](area.searchArea);`;
+            }).join('\n');
+            
+            const overpassQuery = `
+                [out:json][timeout:30];
+                area["name"~"${areaName}"]["admin_level"~"4|6|8"]->.searchArea;
+                (
+                    ${tagQueries}
+                );
+                out center 50;
+            `;
+            
+            try {
+                const response = await axios.post(
+                    'https://overpass-api.de/api/interpreter',
+                    `data=${encodeURIComponent(overpassQuery)}`,
+                    { 
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        timeout: 30000 
+                    }
+                );
+                
+                places = (response.data.elements || []).map(el => {
+                    const tags = el.tags || {};
+                    let lat = el.lat, lng = el.lon;
+                    if (el.center) { lat = el.center.lat; lng = el.center.lon; }
+                    
+                    return {
+                        _id: `osm_${el.id}`,
+                        name: tags['name:th'] || tags.name || 'ไม่ระบุชื่อ',
+                        address: tags['addr:full'] || tags['addr:street'] || '',
+                        location_type: type,
+                        coordinates: { lat, lng },
+                        province: { name_th: tags['addr:province'] || province || '' },
+                        district: { name_th: tags['addr:district'] || district || '' },
+                        subdistrict: { name_th: tags['addr:subdistrict'] || '' },
+                        postal_code: tags['addr:postcode'] || '',
+                        source: 'openstreetmap',
+                        osm_id: el.id
+                    };
+                }).filter(p => p.name !== 'ไม่ระบุชื่อ');
+                
+            } catch (overpassError) {
+                console.error('Overpass API error:', overpassError.message);
+            }
         }
-        if (district) {
-            query['district.name_th'] = district;
+        
+        // Also search from Nominatim for text search
+        if (search) {
+            try {
+                const nominatimUrl = `https://nominatim.openstreetmap.org/search`;
+                const response = await axios.get(nominatimUrl, {
+                    params: {
+                        q: `${search} ${district || ''} ${province || ''} Thailand`,
+                        format: 'json',
+                        countrycodes: 'th',
+                        limit: 20,
+                        addressdetails: 1
+                    },
+                    headers: { 'User-Agent': 'SolarAdmin/1.0' },
+                    timeout: 10000
+                });
+                
+                const nominatimPlaces = (response.data || []).map(item => ({
+                    _id: `nom_${item.place_id}`,
+                    name: item.name || item.display_name.split(',')[0],
+                    address: item.display_name,
+                    location_type: type || 'อื่นๆ',
+                    coordinates: { lat: parseFloat(item.lat), lng: parseFloat(item.lon) },
+                    province: { name_th: item.address?.state || item.address?.province || '' },
+                    district: { name_th: item.address?.city || item.address?.county || '' },
+                    subdistrict: { name_th: item.address?.suburb || item.address?.village || '' },
+                    postal_code: item.address?.postcode || '',
+                    source: 'nominatim',
+                    place_id: item.place_id
+                }));
+                
+                places = [...places, ...nominatimPlaces];
+            } catch (nominatimError) {
+                console.error('Nominatim error:', nominatimError.message);
+            }
         }
-        if (type) {
-            query.location_type = type;
-        }
+        
+        // Also include custom locations from MongoDB
+        let query = {};
+        if (province) query['province.name_th'] = { $regex: province, $options: 'i' };
+        if (district) query['district.name_th'] = { $regex: district, $options: 'i' };
+        if (type && type !== '-- ทั้งหมด --') query.location_type = type;
         if (search) {
             query.$or = [
                 { name: { $regex: search, $options: 'i' } },
                 { address: { $regex: search, $options: 'i' } }
             ];
         }
-
-        const locations = await Location.find(query)
+        
+        const dbLocations = await Location.find(query)
             .populate('created_by', 'full_name')
             .sort({ createdAt: -1 })
-            .limit(100);
-            
-        res.json(locations);
+            .limit(50);
+        
+        // Combine: DB locations first, then API results
+        const allLocations = [...dbLocations.map(loc => ({ ...loc.toObject(), source: 'database' })), ...places];
+        
+        // Remove duplicates by name similarity
+        const uniqueLocations = [];
+        const seenNames = new Set();
+        allLocations.forEach(loc => {
+            const nameKey = loc.name.toLowerCase().replace(/\s+/g, '');
+            if (!seenNames.has(nameKey)) {
+                seenNames.add(nameKey);
+                uniqueLocations.push(loc);
+            }
+        });
+        
+        res.json(uniqueLocations.slice(0, 100));
     } catch (error) {
         console.error('Search error:', error);
         res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
     }
 });
 
-// Create location
+// Create location (for custom places not in API)
 app.post('/api/locations', requireAuth, async (req, res) => {
     try {
         const { name, address, province, district, subdistrict, postal_code, location_type, coordinates, google_place_id } = req.body;
