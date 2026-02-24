@@ -272,89 +272,109 @@ app.get('/api/location-types', (req, res) => {
     ]);
 });
 
-// Map location types to Nominatim/OSM categories
-const locationTypeToCategory = {
-    'บ้านพักอาศัย': { amenity: '', building: 'residential,apartments', place: 'neighbourhood' },
-    'อาคารพาณิชย์': { amenity: '', building: 'commercial,office', office: 'yes' },
-    'โรงงาน': { amenity: '', building: 'industrial', industrial: 'yes' },
-    'ห้างสรรพสินค้า': { shop: 'mall,supermarket,department_store', amenity: 'marketplace' },
-    'โรงแรม': { tourism: 'hotel,resort,motel,guest_house' },
-    'โรงเรียน': { amenity: 'school,college,university,kindergarten' },
-    'โรงพยาบาล': { amenity: 'hospital,clinic,doctors' },
-    'อื่นๆ': {}
-};
+// Load pre-fetched places data and province bounds
+let placesData = [];
+const provinceBounds = require('./data/provinceBounds');
 
-// Search places using Nominatim API (more reliable, no rate limit issues)
+// Try to load places data
+try {
+    placesData = require('./data/places.json');
+    console.log(`✅ Loaded ${placesData.length} places from places.json`);
+} catch (e) {
+    console.log('⚠️ places.json not found, will use API only');
+}
+
+// Helper function to check if coordinates are within province bounds
+function isInProvince(lat, lng, provinceName) {
+    const bounds = provinceBounds[provinceName];
+    if (!bounds) return false;
+    return lat >= bounds.minLat && lat <= bounds.maxLat && 
+           lng >= bounds.minLng && lng <= bounds.maxLng;
+}
+
+// Search places from local data + API fallback
 app.get('/api/locations', requireAuth, async (req, res) => {
     try {
         const { province, district, type, search } = req.query;
         
         let places = [];
         
-        // Build search query based on type and location
-        const typeCategory = type && type !== '-- ทั้งหมด --' ? locationTypeToCategory[type] : null;
+        // 1. FIRST: Search from local places.json data (fastest, most reliable)
+        if (placesData.length > 0 && province) {
+            const localResults = placesData.filter(place => {
+                // Filter by location type
+                if (type && type !== '-- ทั้งหมด --' && place.location_type !== type) {
+                    return false;
+                }
+                
+                // Filter by province using coordinates
+                if (place.coordinates && place.coordinates.lat && place.coordinates.lng) {
+                    if (!isInProvince(place.coordinates.lat, place.coordinates.lng, province)) {
+                        return false;
+                    }
+                }
+                
+                // Filter by text search
+                if (search) {
+                    const searchLower = search.toLowerCase();
+                    if (!place.name.toLowerCase().includes(searchLower) && 
+                        !(place.address && place.address.toLowerCase().includes(searchLower))) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            }).map(place => ({
+                _id: `local_${place.osm_id}`,
+                name: place.name,
+                address: place.address || '',
+                location_type: place.location_type,
+                coordinates: place.coordinates,
+                province: { name_th: province },
+                district: { name_th: place.district || district || '' },
+                subdistrict: { name_th: place.subdistrict || '' },
+                postal_code: place.postal_code || '',
+                source: 'local',
+                phone: place.phone || '',
+                website: place.website || ''
+            }));
+            
+            places = localResults.slice(0, 50);
+            console.log(`Found ${localResults.length} places from local data for ${province}`);
+        }
         
-        // Use Nominatim structured search (more reliable than Overpass)
-        if ((province || district) && type && type !== '-- ทั้งหมด --') {
+        // 2. If not enough results, search from Nominatim API
+        if (places.length < 20 && province && type && type !== '-- ทั้งหมด --') {
             try {
-                // Build search terms based on type
                 const searchTerms = [];
-                if (type === 'โรงเรียน') searchTerms.push('school', 'โรงเรียน');
-                if (type === 'โรงพยาบาล') searchTerms.push('hospital', 'โรงพยาบาล', 'clinic');
-                if (type === 'ห้างสรรพสินค้า') searchTerms.push('mall', 'supermarket', 'ห้าง', 'ตลาด');
-                if (type === 'โรงแรม') searchTerms.push('hotel', 'resort', 'โรงแรม');
-                if (type === 'โรงงาน') searchTerms.push('factory', 'industrial', 'โรงงาน');
-                if (type === 'อาคารพาณิชย์') searchTerms.push('office', 'commercial', 'อาคาร');
-                if (type === 'บ้านพักอาศัย') searchTerms.push('village', 'หมู่บ้าน', 'คอนโด', 'บ้านจัดสรร');
+                if (type === 'โรงเรียน') searchTerms.push('โรงเรียน', 'school');
+                if (type === 'โรงพยาบาล') searchTerms.push('โรงพยาบาล', 'hospital');
+                if (type === 'ห้างสรรพสินค้า') searchTerms.push('ห้าง', 'mall', 'ตลาด');
+                if (type === 'โรงแรม') searchTerms.push('โรงแรม', 'hotel');
+                if (type === 'โรงงาน') searchTerms.push('โรงงาน', 'factory');
+                if (type === 'อาคารพาณิชย์') searchTerms.push('อาคาร', 'office');
+                if (type === 'บ้านพักอาศัย') searchTerms.push('หมู่บ้าน', 'บ้านจัดสรร', 'คอนโด');
                 
-                // Search with first term + location
                 const locationStr = district ? `${district} ${province}` : province;
-                const searchQuery = searchTerms[0] ? `${searchTerms[0]} ${locationStr} Thailand` : `${locationStr} Thailand`;
                 
-                const nominatimUrl = 'https://nominatim.openstreetmap.org/search';
-                const response = await axios.get(nominatimUrl, {
-                    params: {
-                        q: searchQuery,
-                        format: 'json',
-                        countrycodes: 'th',
-                        limit: 50,
-                        addressdetails: 1
-                    },
-                    headers: { 'User-Agent': 'SolarAdmin/1.0 (https://super-solarad.netlify.app)' },
-                    timeout: 15000
-                });
-                
-                places = (response.data || []).map(item => ({
-                    _id: `nom_${item.place_id}`,
-                    name: item.name || item.display_name.split(',')[0],
-                    address: item.display_name,
-                    location_type: type,
-                    coordinates: { lat: parseFloat(item.lat), lng: parseFloat(item.lon) },
-                    province: { name_th: item.address?.state || item.address?.province || province || '' },
-                    district: { name_th: item.address?.city || item.address?.county || item.address?.town || district || '' },
-                    subdistrict: { name_th: item.address?.suburb || item.address?.village || item.address?.hamlet || '' },
-                    postal_code: item.address?.postcode || '',
-                    source: 'nominatim',
-                    place_id: item.place_id
-                }));
-                
-                // Also try Thai search term
-                if (searchTerms[1] && places.length < 10) {
-                    await new Promise(r => setTimeout(r, 1100)); // Rate limit: 1 req/sec
-                    const thaiQuery = `${searchTerms[1]} ${locationStr}`;
-                    const response2 = await axios.get(nominatimUrl, {
+                for (const term of searchTerms.slice(0, 2)) {
+                    if (places.length >= 30) break;
+                    
+                    await new Promise(r => setTimeout(r, 1100)); // Rate limit
+                    
+                    const response = await axios.get('https://nominatim.openstreetmap.org/search', {
                         params: {
-                            q: thaiQuery,
+                            q: `${term} ${locationStr}`,
                             format: 'json',
                             countrycodes: 'th',
-                            limit: 30,
+                            limit: 20,
                             addressdetails: 1
                         },
-                        headers: { 'User-Agent': 'SolarAdmin/1.0' },
+                        headers: { 'User-Agent': 'SolarAdmin/1.0 (contact@example.com)' },
                         timeout: 15000
                     });
                     
-                    const morePlaces = (response2.data || []).map(item => ({
+                    const apiPlaces = (response.data || []).map(item => ({
                         _id: `nom_${item.place_id}`,
                         name: item.name || item.display_name.split(',')[0],
                         address: item.display_name,
@@ -364,24 +384,23 @@ app.get('/api/locations', requireAuth, async (req, res) => {
                         district: { name_th: item.address?.city || item.address?.county || district || '' },
                         subdistrict: { name_th: item.address?.suburb || item.address?.village || '' },
                         postal_code: item.address?.postcode || '',
-                        source: 'nominatim',
-                        place_id: item.place_id
+                        source: 'nominatim'
                     }));
                     
-                    places = [...places, ...morePlaces];
+                    places = [...places, ...apiPlaces];
                 }
                 
-            } catch (nominatimError) {
-                console.error('Nominatim API error:', nominatimError.message);
+            } catch (err) {
+                console.error('Nominatim error:', err.message);
             }
         }
         
-        // Text search
+        // 3. Text search (when user types in search box)
         if (search) {
             try {
-                await new Promise(r => setTimeout(r, 1100)); // Rate limit
-                const nominatimUrl = 'https://nominatim.openstreetmap.org/search';
-                const response = await axios.get(nominatimUrl, {
+                await new Promise(r => setTimeout(r, 1100));
+                
+                const response = await axios.get('https://nominatim.openstreetmap.org/search', {
                     params: {
                         q: `${search} ${district || ''} ${province || ''} Thailand`,
                         format: 'json',
