@@ -5,7 +5,7 @@ let locationTypes = [];
 
 // ==================== API Helper ====================
 async function api(endpoint, options = {}) {
-    const response = await fetch(`/api${endpoint}`, {
+    const response = await fetch(`${API_URL}/api${endpoint}`, {
         ...options,
         credentials: 'include',
         headers: {
@@ -113,7 +113,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // ==================== Auth Functions ====================
 async function checkAuth() {
     try {
-        const response = await fetch('/api/auth/me', {
+        const response = await fetch(`${API_URL}/api/auth/me`, {
             credentials: 'include'
         });
         
@@ -212,9 +212,42 @@ async function logout() {
 }
 
 // ==================== Thailand Location API ====================
+// Cache Thailand data locally for faster access
+let thailandData = {
+    provinces: [],
+    amphures: [],
+    tambons: []
+};
+
+// Load all Thailand data at once (faster than multiple requests)
+async function loadAllThailandData() {
+    try {
+        showLoading();
+        const data = await api('/thailand/all');
+        thailandData.provinces = data.provinces || [];
+        thailandData.amphures = data.amphures || [];
+        thailandData.tambons = data.tambons || [];
+        provinces = thailandData.provinces;
+        console.log(`✅ Thailand data loaded: ${provinces.length} provinces`);
+        return data;
+    } catch (error) {
+        console.error('Error loading Thailand data:', error);
+        // Fallback to individual loading
+        await loadProvinces();
+        return null;
+    } finally {
+        hideLoading();
+    }
+}
+
 async function loadProvinces() {
     try {
+        if (thailandData.provinces.length > 0) {
+            provinces = thailandData.provinces;
+            return provinces;
+        }
         provinces = await api('/thailand/provinces');
+        thailandData.provinces = provinces;
         return provinces;
     } catch (error) {
         console.error('Error loading provinces:', error);
@@ -222,8 +255,20 @@ async function loadProvinces() {
     }
 }
 
+function getAmphuresByProvince(provinceId) {
+    return thailandData.amphures.filter(a => a.province_id === parseInt(provinceId));
+}
+
+function getTambonsByAmphure(amphureId) {
+    return thailandData.tambons.filter(t => t.amphure_id === parseInt(amphureId));
+}
+
 async function loadAmphures(provinceId) {
     try {
+        // Use cached data if available
+        if (thailandData.amphures.length > 0) {
+            return getAmphuresByProvince(provinceId);
+        }
         return await api(`/thailand/amphures/${provinceId}`);
     } catch (error) {
         console.error('Error loading amphures:', error);
@@ -233,6 +278,10 @@ async function loadAmphures(provinceId) {
 
 async function loadTambons(amphureId) {
     try {
+        // Use cached data if available
+        if (thailandData.tambons.length > 0) {
+            return getTambonsByAmphure(amphureId);
+        }
         return await api(`/thailand/tambons/${amphureId}`);
     } catch (error) {
         console.error('Error loading tambons:', error);
@@ -252,7 +301,7 @@ async function loadLocationTypes() {
 
 // ==================== Employee Functions ====================
 async function initEmployeePage() {
-    await loadProvinces();
+    await loadAllThailandData();
     await loadLocationTypes();
     populateSearchFilters();
     populateAddLocationForm();
@@ -619,7 +668,7 @@ function getUsageText(usage) {
 
 // ==================== Admin Functions ====================
 async function initAdminPage() {
-    await loadProvinces();
+    await loadAllThailandData();
     await loadLocationTypes();
     await loadAdminStats();
     await loadEmployeeFilter();

@@ -181,30 +181,61 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 });
 
 // ==================== THAILAND LOCATION API ====================
-// Using free Thailand Administrative API
+// Cache Thailand data in memory for fast loading
+let thailandCache = {
+    provinces: null,
+    amphures: null,
+    tambons: null,
+    lastFetch: null
+};
 
-// Get all provinces (public - no auth required)
+// Preload Thailand data at startup
+async function preloadThailandData() {
+    console.log('⏳ Preloading Thailand location data...');
+    try {
+        const [provincesRes, amphuresRes, tambonsRes] = await Promise.all([
+            axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_province.json'),
+            axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_amphure.json'),
+            axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_tambon.json')
+        ]);
+        
+        thailandCache.provinces = provincesRes.data;
+        thailandCache.amphures = amphuresRes.data;
+        thailandCache.tambons = tambonsRes.data;
+        thailandCache.lastFetch = new Date();
+        
+        console.log(`✅ Thailand data loaded: ${thailandCache.provinces.length} provinces, ${thailandCache.amphures.length} amphures, ${thailandCache.tambons.length} tambons`);
+    } catch (error) {
+        console.error('❌ Error preloading Thailand data:', error.message);
+    }
+}
+
+// Get all provinces (public - cached)
 app.get('/api/thailand/provinces', async (req, res) => {
     try {
+        if (thailandCache.provinces) {
+            return res.json(thailandCache.provinces);
+        }
+        
         const response = await axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_province.json');
+        thailandCache.provinces = response.data;
         res.json(response.data);
     } catch (error) {
         console.error('Error fetching provinces:', error);
-        // Fallback data
-        res.json([
-            { id: 1, name_th: 'กรุงเทพมหานคร', name_en: 'Bangkok' },
-            { id: 2, name_th: 'นนทบุรี', name_en: 'Nonthaburi' },
-            { id: 3, name_th: 'ปทุมธานี', name_en: 'Pathum Thani' },
-            { id: 4, name_th: 'สมุทรปราการ', name_en: 'Samut Prakan' },
-            { id: 5, name_th: 'ชลบุรี', name_en: 'Chon Buri' }
-        ]);
+        res.json([]);
     }
 });
 
-// Get districts (amphures) by province (public)
+// Get districts (amphures) by province (public - cached)
 app.get('/api/thailand/amphures/:provinceId', async (req, res) => {
     try {
+        if (thailandCache.amphures) {
+            const amphures = thailandCache.amphures.filter(a => a.province_id === parseInt(req.params.provinceId));
+            return res.json(amphures);
+        }
+        
         const response = await axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_amphure.json');
+        thailandCache.amphures = response.data;
         const amphures = response.data.filter(a => a.province_id === parseInt(req.params.provinceId));
         res.json(amphures);
     } catch (error) {
@@ -213,15 +244,55 @@ app.get('/api/thailand/amphures/:provinceId', async (req, res) => {
     }
 });
 
-// Get tambons (subdistricts) by amphure (public)
+// Get tambons (subdistricts) by amphure (public - cached)
 app.get('/api/thailand/tambons/:amphureId', async (req, res) => {
     try {
+        if (thailandCache.tambons) {
+            const tambons = thailandCache.tambons.filter(t => t.amphure_id === parseInt(req.params.amphureId));
+            return res.json(tambons);
+        }
+        
         const response = await axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_tambon.json');
+        thailandCache.tambons = response.data;
         const tambons = response.data.filter(t => t.amphure_id === parseInt(req.params.amphureId));
         res.json(tambons);
     } catch (error) {
         console.error('Error fetching tambons:', error);
         res.json([]);
+    }
+});
+
+// Get ALL Thailand data at once (for faster loading)
+app.get('/api/thailand/all', async (req, res) => {
+    try {
+        // If cache is ready, return immediately
+        if (thailandCache.provinces && thailandCache.amphures && thailandCache.tambons) {
+            return res.json({
+                provinces: thailandCache.provinces,
+                amphures: thailandCache.amphures,
+                tambons: thailandCache.tambons
+            });
+        }
+        
+        // Fetch all at once
+        const [provincesRes, amphuresRes, tambonsRes] = await Promise.all([
+            axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_province.json'),
+            axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_amphure.json'),
+            axios.get('https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_tambon.json')
+        ]);
+        
+        thailandCache.provinces = provincesRes.data;
+        thailandCache.amphures = amphuresRes.data;
+        thailandCache.tambons = tambonsRes.data;
+        
+        res.json({
+            provinces: thailandCache.provinces,
+            amphures: thailandCache.amphures,
+            tambons: thailandCache.tambons
+        });
+    } catch (error) {
+        console.error('Error fetching Thailand data:', error);
+        res.status(500).json({ error: 'ไม่สามารถโหลดข้อมูลได้' });
     }
 });
 
@@ -522,6 +593,9 @@ app.get('*', (req, res) => {
 async function startServer() {
     try {
         await connectDatabase();
+        
+        // Preload Thailand data in background
+        preloadThailandData();
         
         app.listen(PORT, () => {
             console.log(`🚀 Server running at http://localhost:${PORT}`);
