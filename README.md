@@ -26,7 +26,7 @@
 3. **ตั้งค่า Environment Variables บน Render**
    - `MONGODB_URI` = (copy จาก MongoDB Atlas)
    - `SESSION_SECRET` = (สร้างค่า random หรือให้ Render generate)
-   - `FRONTEND_URL` = https://YOUR-APP.netlify.app (ใส่หลัง deploy Netlify)
+   - `FRONTEND_URL` = https://track-solar.netlify.app (ใส่หลัง deploy Netlify)
    - `NODE_ENV` = production
 
 4. **คัดลอก Render URL**
@@ -38,7 +38,7 @@
 
 1. **แก้ไข `frontend/js/config.js`**
    ```javascript
-   const API_URL = 'https://YOUR-RENDER-URL.onrender.com';
+   const API_URL = 'https://solarad-2m7y.onrender.com';
    ```
 
 2. **Deploy บน Netlify**
@@ -50,7 +50,7 @@
      - **Publish directory:** frontend
 
 3. **คัดลอก Netlify URL**
-   - เช่น `https://solar-admin.netlify.app`
+   - เช่น `https://track-solar.netlify.app`
 
 4. **อัปเดต Render Environment**
    - กลับไป Render → Environment
